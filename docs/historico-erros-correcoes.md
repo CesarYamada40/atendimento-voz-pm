@@ -26,8 +26,11 @@ Cada item lista: **sintoma → causa → correção → teste**.
 | 17 | Respostas ainda repetidas ("meu" → "meu nome" → "meu nome é") | reconhecedor emite finais **cumulativos** | Frontend mescla finais sobrepostos (`appendFinal`) |
 | 18 | CEP/telefone corrompidos pelo colapso ("zero um três um zero um zero zero") | `collapse_repeats` colapsava dígitos falados | Colapso **preserva sequências numéricas** |
 | 19 | Número do imóvel virava os dígitos do CEP ("01310") | `_parse_address_number` capturava o CEP | Remover CEP antes de extrair o número |
+| 20 | Anotava o endereço mas **não confirmava** se o CEP/local foi encontrado — risco de viatura no local errado | sem etapa de confirmação | **Confirmação obrigatória do local** ("Localizei o endereço: … Está correto?") antes de seguir; "não" limpa o endereço e refaz |
+| 21 | Sem CEP, não descobria o CEP pelo endereço | faltava busca reversa | **ViaCEP por logradouro** (`/ws/{UF}/{cidade}/{rua}`) → rua canônica + CEP (SP e todo o Brasil) |
+| 22 | Estado vinha como nome ("São Paulo") do Nominatim | sem normalização | Normalizar para **UF** (`parse_uf` → "SP") |
 
 ## Estado atual
-- 49 testes automatizados (`pytest`), offline e determinísticos.
+- 51 testes automatizados (`pytest`), offline e determinísticos.
 - Relatório de log por ocorrência com checklist e passo a passo.
 - Erros conhecidos/pendências: telefonia real (SIP/190) e integração CAD ainda não existem (fases 2–3).

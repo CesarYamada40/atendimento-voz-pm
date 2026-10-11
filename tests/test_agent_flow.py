@@ -1,4 +1,4 @@
-"""Testes do fluxo de atendimento (formulário guiado)."""
+"""Testes do fluxo de atendimento (formulário guiado + confirmação de local)."""
 from app.schemas import DialogState, Severity
 
 FLUXO_OK = [
@@ -7,8 +7,9 @@ FLUXO_OK = [
     "É pessoa física",
     "Avenida Paulista, CEP 01310-100, São Paulo",
     "número 1578",
+    "sim",                                        # confirma o local
     "Pode anotar 11 91234-5678",
-    "não sei",                                   # referência é opcional
+    "não sei",                                    # referência é opcional
     "O homem está de camiseta preta, de moto, apontando a arma agora",
 ]
 
@@ -22,6 +23,7 @@ def test_fluxo_completo_gera_ocorrencia_g1(run):
     assert o.caller_type == "PF"
     assert o.cep == "01310100"
     assert o.city == "São Paulo"
+    assert o.location_number == "1578"
     assert o.caller_phone == "11912345678"
     assert o.severity == Severity.G1
     assert last.human_handoff is True
@@ -42,7 +44,7 @@ def test_nao_sei_em_campo_obrigatorio_repete_pergunta(run, turn):
 
 
 def test_nao_sei_em_opcional_pula(run, turn):
-    start, _ = run(FLUXO_OK[:6])  # até telefone
+    start, _ = run(FLUXO_OK[:7])  # até telefone
     resp = turn(start.call_id, "não sei")
     assert resp.occurrence.location_reference is None
     assert resp.question_id == "fatos"
@@ -60,7 +62,6 @@ def test_cep_nao_vira_telefone(run):
 def test_corrigir_telefone(run, turn):
     start, _ = run([
         "João", "assalto armado agora", "pessoa física", "Rua X 10",
-        "11 91234-5678",
     ])
     r1 = turn(start.call_id, "corrigir telefone")
     assert r1.question_id == "telefone"
@@ -92,7 +93,7 @@ def test_encerrar_apos_gerar(run, turn):
 def test_telefone_falado_por_extenso(run):
     _start, last = run([
         "João", "assalto", "pessoa física", "Rua X, CEP 01310-100",
-        "número 10", "nove um dois três quatro cinco seis sete oito",
+        "número 10", "sim", "nove um dois três quatro cinco seis sete oito",
     ])
     assert last.occurrence.caller_phone == "912345678"
 
@@ -119,7 +120,7 @@ def test_pergunta_estado_cidade_bairro_sem_cep(run):
         "João", "assalto em andamento", "pessoa física",
         "Rua das Flores número quinze",
         "Sergipe", "Aracaju", "Centro",
-        "11 91234-5678", "não sei", "assalto em andamento agora",
+        "sim", "11 91234-5678", "não sei", "assalto em andamento agora",
     ])
     o = last.occurrence
     assert o.location_state == "SE"
@@ -136,15 +137,6 @@ def test_cep_pula_estado_cidade_bairro(run):
     assert last.question_id == "numero"   # pulou estado/cidade/bairro
 
 
-def test_nao_pula_endereco_por_rua_solta(run):
-    # "rua" citada no meio da fala NÃO pode virar endereço e pular a pergunta
-    _start, last = run([
-        "João", "tem um cara com uma arma passando na rua", "pessoa física",
-    ])
-    assert last.question_id == "endereco"
-    assert last.occurrence.location_address is None
-
-
 def test_pergunta_numero_do_local(run):
     _start, last = run([
         "João", "assalto", "pessoa física",
@@ -154,13 +146,43 @@ def test_pergunta_numero_do_local(run):
     assert last.occurrence.location_number == "120"
 
 
-def test_anuncia_local_entendido(run):
+def test_nao_pula_endereco_por_rua_solta(run):
+    # "rua" citada no meio da fala NÃO pode virar endereço e pular a pergunta
+    _start, last = run([
+        "João", "tem um cara com uma arma passando na rua", "pessoa física",
+    ])
+    assert last.question_id == "endereco"
+    assert last.occurrence.location_address is None
+
+
+def test_confirma_local_identificado(run):
     _start, last = run([
         "João", "assalto", "pessoa física",
-        "Rua X, CEP 01310-100",
+        "Rua X, CEP 01310-100", "número 1578",
     ])
-    assert "Você está em" in last.reply
+    assert "Localizei o endereço" in last.reply
+    assert "Está correto" in last.reply
     assert "01310100" in last.reply
+
+
+def test_descobre_cep_pelo_endereco_e_confirma(run):
+    _start, last = run([
+        "João", "assalto em andamento", "pessoa física",
+        "Rua das Flores número dez", "Sergipe", "Aracaju", "Centro",
+    ])
+    assert "Localizei o endereço" in last.reply
+    assert last.occurrence.cep == "49015110"      # descoberto via ViaCEP busca
+    assert "Rua das Flores" in last.reply
+
+
+def test_nao_confirma_local_volta_para_endereco(run, turn):
+    start, _ = run([
+        "João", "assalto", "pessoa física",
+        "Rua X, CEP 01310-100", "número 1578",
+    ])
+    resp = turn(start.call_id, "não está certo")
+    assert resp.question_id == "endereco"
+    assert resp.occurrence.cep is None
 
 
 def test_mensagem_de_despacho_a_equipe(run):
@@ -169,12 +191,9 @@ def test_mensagem_de_despacho_a_equipe(run):
     assert "aguarde" in last.reply.lower()
 
 
-def test_frase_de_local_nao_duplica_numero(run):
-    _start, last = run([
-        "João", "assalto", "pessoa física",
-        "Rua das Flores número dez", "Sergipe", "Aracaju",
-    ])
-    assert "Você está em" in last.reply
-    assert "número dez" not in last.reply.lower()
-    assert "número 10" in last.reply.lower()
-
+def test_final_curto_com_rua_e_numero(run):
+    _start, last = run(FLUXO_OK)
+    o = last.occurrence
+    assert o.occurrence_number in last.reply
+    assert o.location_address in last.reply
+    assert "Aguarde" in last.reply

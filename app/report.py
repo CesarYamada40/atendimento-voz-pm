@@ -12,6 +12,7 @@ QUESTION_FIELD = {
     "estado": "location_state", "cidade": "city",
     "bairro": "location_neighborhood", "telefone": "caller_phone",
     "referencia": "location_reference", "fatos": "description",
+    "confirmar_local": "cep",
 }
 REQUIRED = ["nome", "ocorrencia", "tipo", "endereco", "telefone", "fatos"]
 LABEL = {

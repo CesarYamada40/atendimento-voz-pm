@@ -44,9 +44,16 @@ def isolate(monkeypatch):
     async def fake_nominatim(query: str):
         return None
 
+    async def fake_viacep_busca(uf: str, city: str, street: str):
+        if "flores" in street.lower():
+            return [{"cep": "49015-110", "logradouro": "Rua das Flores",
+                     "bairro": "Centro", "localidade": "Aracaju", "uf": "SE"}]
+        return []
+
     monkeypatch.setattr(location, "_brasilapi_cep", fake_brasilapi)
     monkeypatch.setattr(location, "_viacep", fake_viacep)
     monkeypatch.setattr(location, "_nominatim", fake_nominatim)
+    monkeypatch.setattr(location, "_viacep_busca", fake_viacep_busca)
     yield
 
 

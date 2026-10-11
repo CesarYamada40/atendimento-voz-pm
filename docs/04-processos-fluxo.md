@@ -24,6 +24,15 @@ respondidas são **puladas**; várias informações numa só fala também são c
 > (BrasilAPI/ViaCEP) e as perguntas 6–8 são **puladas automaticamente**; o **número**
 > (pergunta 5) continua sendo pedido.
 
+### Confirmação do local (obrigatória)
+Antes de pedir o telefone, a IA **confirma o local identificado**:
+*"Localizei o endereço: Rua …, número …, bairro …, Cidade/UF, CEP …. Está correto?"*
+- Se o cidadão **não tem o CEP**, a IA **descobre o CEP** pela rua/bairro/cidade/UF
+  via **ViaCEP por logradouro** (`/ws/{UF}/{cidade}/{rua}` — funciona em São Paulo e
+  todo o Brasil) e informa a **rua canônica + CEP** para confirmação.
+- Se o cidadão disser que **não está certo**, o endereço é limpo e a pergunta de
+  endereço volta — evitando mandar a viatura para o local errado.
+
 Ao final, a IA dá um **resumo curto**: **número do registro** e **nome da rua** —
 *"Ocorrência AAAA-NNNNNN registrada. Rua …. Repassando para a equipe tática. Aguarde."*
 Quem quiser ouvir todos os dados diz **"repetir os dados"**.

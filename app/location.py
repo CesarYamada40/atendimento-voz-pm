@@ -16,6 +16,7 @@ import os
 import re
 from dataclasses import dataclass, asdict
 from typing import Optional
+from urllib.parse import quote
 
 import httpx
 
@@ -140,6 +141,54 @@ async def _nominatim(query: str) -> Optional[GeoResult]:
         city=addr.get("city") or addr.get("town") or addr.get("municipality"),
         state=addr.get("state"), lat=float(hit["lat"]), lng=float(hit["lon"]),
         display=hit.get("display_name"), source="nominatim", confidence="media",
+    )
+
+
+async def _viacep_busca(uf: str, city: str, street: str) -> list:
+    """Busca CEP(s) por UF/cidade/logradouro (ViaCEP) — endereço -> CEP."""
+    url = f"https://viacep.com.br/ws/{quote(uf)}/{quote(city)}/{quote(street)}/json/"
+    try:
+        async with httpx.AsyncClient(timeout=10) as c:
+            r = await c.get(url, headers=UA)
+            if r.status_code != 200:
+                return []
+            data = r.json()
+            return data if isinstance(data, list) else []
+    except Exception as exc:  # noqa: BLE001
+        log.warning("ViaCEP busca falhou (%s)", exc)
+        return []
+
+
+async def resolve_address(uf: Optional[str], city: Optional[str], street: Optional[str],
+                          bairro: Optional[str] = None) -> GeoResult:
+    """Descobre rua canônica + CEP a partir de rua/bairro/cidade/UF (ViaCEP)."""
+    raw = ", ".join(x for x in [street, bairro, city, uf] if x)
+    uf = parse_uf(uf) or uf
+    if not (uf and city and street) or len(uf) != 2 or len(city) < 3 or len(street) < 3:
+        return GeoResult(raw=raw, resolved=False, source="nao_resolvido", confidence="baixa")
+
+    items = await _viacep_busca(uf, city, street)
+    if not items:
+        return GeoResult(raw=raw, resolved=False, display=raw, source="nao_resolvido",
+                         confidence="baixa")
+
+    def score(it: dict) -> int:
+        s = 0
+        if bairro and _norm_uf(bairro) and _norm_uf(bairro) in _norm_uf(it.get("bairro", "")):
+            s += 2
+        if _norm_uf(street) and _norm_uf(street) in _norm_uf(it.get("logradouro", "")):
+            s += 1
+        return s
+
+    best = max(items, key=score)
+    return GeoResult(
+        raw=raw, resolved=True,
+        cep=(best.get("cep") or "").replace("-", "") or None,
+        street=best.get("logradouro"), neighborhood=best.get("bairro"),
+        city=best.get("localidade"), state=best.get("uf"),
+        display=f"{best.get('logradouro','')}, {best.get('bairro','')}, "
+                f"{best.get('localidade','')}/{best.get('uf','')}".strip(", "),
+        source="viacep-busca", confidence="media",
     )
 
 

@@ -7,6 +7,7 @@ FLUXO_OK = [
     "É pessoa física",
     "Avenida Paulista, CEP 01310-100, São Paulo",
     "número 1578",
+    "sim",
     "Pode anotar 11 91234-5678",
     "não sei",
     "O homem está de camiseta preta, de moto, apontando a arma agora",

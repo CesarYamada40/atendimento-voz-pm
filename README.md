@@ -19,8 +19,11 @@ coordenadas) e define a **gravidade** e o **órgão/viatura responsável** a des
 - Perguntas de **estado (UF), cidade e bairro** e do **número do local (ou aproximado)**
   (estado/cidade/bairro pulados quando o CEP já resolve) — garante que a **viatura/
   equipe tática certa** vá ao local.
-- A IA **anuncia o local entendido** e, ao gerar, dá um **resumo curto** (número do
-  registro + **nome da rua**) informando que está **repassando para a equipe tática**.
+- A IA **confirma o local identificado** antes de prosseguir ("Localizei o endereço:
+  … Está correto?") e, se o cidadão **não tiver o CEP**, **descobre o CEP** pela
+  rua/bairro/cidade/UF (ViaCEP por logradouro — SP e todo o Brasil). Se não estiver
+  certo, volta a perguntar o endereço.
+- Ao gerar, dá um **resumo curto** (número do registro + **nome da rua**).
 - **Sem repetição**: mescla finais cumulativos do reconhecedor e colapsa repetições
   (preservando números falados). Autofill não captura endereço de falas soltas.
 - **Voz masculina** pt-BR (seleção automática, com seletor para trocar).
