@@ -1,0 +1,7 @@
+{
+  "_comentario": "Mapa opcional município/UF -> unidade responsável. Chave 'Município/UF' ou 'UF'. Sem entrada, o sistema usa 'Batalhão da área de <município>/<UF>'.",
+  "São Paulo/SP": "1º Batalhão de Polícia Militar Metropolitano (1º BPM/M)",
+  "Rio de Janeiro/RJ": "Batalhão da área (PMERJ)",
+  "Brasília/DF": "Batalhão da área (PMDF)",
+  "Belo Horizonte/MG": "Batalhão da área (PMMG)"
+}

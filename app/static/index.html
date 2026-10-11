@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Central de Atendimento por Voz — PM</title>
+<link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+<header>
+  <h1>Central de Atendimento por Voz · Polícia Militar</h1>
+  <nav class="nav">
+    <a href="/" class="active">Atendimento</a>
+    <a href="/dashboard">Painel de Ocorrências</a>
+  </nav>
+</header>
+
+<div class="wrap">
+  <div class="col left">
+    <div class="panel">
+      <div id="callState">Desligado — clique em “Atender ligação”</div>
+      <button id="startBtn" class="primary">Atender ligação</button>
+      <div id="hangBtnWrap" style="margin-top:10px; display:none;">
+        <button id="doneBtn" class="primary" style="width:100%;margin-bottom:8px">Já falei — avançar</button>
+        <button id="hangBtn" class="ghost" style="width:100%">Encerrar ligação</button>
+      </div>
+    </div>
+    <div class="panel">
+      <h2>Transcrição em tempo real</h2>
+      <div id="transcript"><span class="muted">O diálogo aparecerá aqui conforme a fala do cidadão.</span></div>
+    </div>
+    <div class="panel">
+      <h2>Digitar resposta (alternativa ao microfone)</h2>
+      <div style="display:flex;gap:8px">
+        <input id="typedText" placeholder="Digite o que o cidadão diria…"
+          style="flex:1;padding:10px;border-radius:8px;border:1px solid var(--border);background:#0d1117;color:var(--text)" />
+        <button id="sendTyped" class="ghost">Enviar</button>
+      </div>
+      <p class="muted" style="font-size:12px;margin:8px 0 0">
+        Útil em tablet/celular quando o microfone não é liberado.
+      </p>
+    </div>
+    <div class="panel">
+      <h2>Voz do atendente</h2>
+      <select id="voiceSel"
+        style="width:100%;padding:8px;border-radius:8px;border:1px solid var(--border);background:#0d1117;color:var(--text)"></select>
+      <p class="muted" style="font-size:12px;margin:8px 0 0">
+        Voz masculina pt-BR selecionada automaticamente. Troque aqui se preferir.
+      </p>
+    </div>
+  </div>
+
+  <div class="col right">
+    <div class="panel">
+      <h2>Gravidade</h2>
+      <div id="severityBox"><span class="muted">Aguardando dados…</span></div>
+    </div>
+    <div class="panel">
+      <h2>Ocorrência em formação</h2>
+      <div id="occ">
+        <div class="field"><span class="k">Nº ocorrência</span><span class="v" id="f_number">—</span></div>
+        <div class="field"><span class="k">Nome</span><span class="v" id="f_name">—</span></div>
+        <div class="field"><span class="k">Ocorrência</span><span class="v" id="f_nature">—</span></div>
+        <div class="field"><span class="k">Tipo</span><span class="v" id="f_type">—</span></div>
+        <div class="field"><span class="k">Endereço</span><span class="v" id="f_location">—</span></div>
+        <div class="field"><span class="k">CEP</span><span class="v" id="f_cep">—</span></div>
+        <div class="field"><span class="k">Cidade/UF</span><span class="v" id="f_city">—</span></div>
+        <div class="field"><span class="k">Telefone</span><span class="v" id="f_phone">—</span></div>
+        <div class="field"><span class="k">Referência</span><span class="v" id="f_reference">—</span></div>
+        <div class="field"><span class="k">Órgão / viatura</span><span class="v" id="f_agency">—</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+let callId = null, recognition = null, active = false;
+let processing = false, pendingFinal = "", silenceTimer = null;
+const SILENCE_MS = 2200;   // espera de silêncio antes de registrar a resposta
+
+const $ = (id) => document.getElementById(id);
+
+const MALE_NAMES = ["daniel", "felipe", "joao", "joão", "ricardo", "marcos", "bruno",
+  "thiago", "tiago", "antonio", "antônio", "paulo", "hugo", "masculin", "male", "homem"];
+const FEMALE_NAMES = ["maria", "luciana", "fernanda", "francisca", "joana", "vitoria",
+  "vitória", "helena", "zira", "female", "camila", "juliana", "ines", "inês", "mulher"];
+let voiceList = [], selectedVoice = null;
+
+function _isMale(v) { return MALE_NAMES.some(n => v.name.toLowerCase().includes(n)); }
+function _isFemale(v) { return FEMALE_NAMES.some(n => v.name.toLowerCase().includes(n)); }
+
+function pickVoice() {
+  if (!voiceList.length) return null;
+  const pt = voiceList.filter(v => /pt/i.test(v.lang));
+  const pool = pt.length ? pt : voiceList;
+  return pool.find(_isMale) || pool.find(v => !_isFemale(v)) || pool[0] || null;
+}
+
+function populateVoices() {
+  if (!("speechSynthesis" in window)) return;
+  const sel = $("voiceSel");
+  const voices = speechSynthesis.getVoices();
+  if (!voices.length) return;
+  const pt = voices.filter(v => /pt/i.test(v.lang));
+  voiceList = pt.length ? pt : voices;
+  sel.innerHTML = "";
+  voiceList.forEach((v, i) => {
+    const o = document.createElement("option");
+    o.value = i; o.textContent = `${v.name} (${v.lang})`;
+    sel.appendChild(o);
+  });
+  const idx = Math.max(0, voiceList.findIndex(_isMale));
+  sel.value = idx;
+  selectedVoice = voiceList[idx] || null;
+  sel.onchange = () => { selectedVoice = voiceList[sel.value] || null; };
+}
+
+if ("speechSynthesis" in window) {
+  speechSynthesis.onvoiceschanged = populateVoices;
+  populateVoices();
+  setTimeout(populateVoices, 400);   // alguns navegadores carregam as vozes tarde
+}
+
+function tts(text, onEnd) {
+  if (!("speechSynthesis" in window)) { onEnd && onEnd(); return; }
+  speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(text);
+  const v = selectedVoice || pickVoice();
+  u.lang = "pt-BR"; u.rate = 1.0;
+  if (v) u.voice = v;
+  u.pitch = (v && _isMale(v)) ? 0.9 : 0.65;   // tom mais grave
+  u.onend = () => onEnd && onEnd();
+  speechSynthesis.speak(u);
+}
+
+function appendLine(cls, text) {
+  const t = $("transcript");
+  if (t.querySelector(".muted")) t.innerHTML = "";
+  const d = document.createElement("div");
+  d.className = cls; d.textContent = text; t.appendChild(d); t.scrollTop = t.scrollHeight;
+  return d;
+}
+
+function updateOcc(o) {
+  $("f_number").textContent = o.occurrence_number || "—";
+  $("f_name").textContent = o.caller_name || "—";
+  $("f_nature").textContent = o.nature || "—";
+  $("f_type").textContent = o.caller_type ? (o.caller_type + (o.org_name ? ` (${o.org_name})` : "")) : "—";
+  $("f_location").textContent = o.location_address || o.location_reference || "—";
+  $("f_cep").textContent = o.cep || "—";
+  $("f_city").textContent = (o.city || o.location_state) ? `${o.city || ""}/${o.location_state || ""}` : "—";
+  $("f_phone").textContent = o.caller_phone || "—";
+  $("f_reference").textContent = o.location_reference || "—";
+  $("f_agency").textContent = o.responsible_agency || o.recommended_dispatch || "—";
+  if (o.severity) {
+    $("severityBox").innerHTML =
+      `<div class="badge ${o.severity}">${o.severity} — ${o.severity_label || ""}</div>` +
+      `<p class="muted" style="font-size:13px;margin-top:10px">${o.severity_reason || ""}</p>`;
+  }
+}
+
+async function startCall() {
+  $("startBtn").style.display = "none"; $("hangBtnWrap").style.display = "block";
+  $("callState").innerHTML = '<span class="pulse"></span> Ligação em andamento';
+  active = true;
+  const r = await fetch("/api/call/start", {
+    method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({channel: "web"})
+  }).then(x => x.json());
+  callId = r.call_id;
+  appendLine("bot", "Bot: " + r.greeting);
+  updateOcc(r.occurrence);
+  tts(r.greeting, () => {
+    if (SR) { listen(); }
+    else { $("callState").textContent = "Microfone indisponível neste navegador — use o campo Digitar resposta."; }
+  });
+}
+
+function listen() {
+  if (!active || processing) return;
+  if (recognition) return;                       // uma única instância
+  recognition = new SR();
+  recognition.lang = "pt-BR";
+  recognition.continuous = true;
+  recognition.interimResults = true;
+  recognition.onresult = (e) => {
+    let interim = "";
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      const tr = e.results[i][0].transcript;
+      if (e.results[i].isFinal) appendFinal(tr);
+      else interim += tr;
+    }
+    showLive(pendingFinal, interim);
+    resetSilence();                              // só envia após SILENCE_MS de silêncio
+  };
+  recognition.onerror = (e) => {
+    recognition = null;
+    if (e.error !== "aborted" && active && !processing) setTimeout(listen, 600);
+  };
+  recognition.onend = () => {
+    recognition = null;
+    if (active && !processing) setTimeout(listen, 300);
+  };
+  try { recognition.start(); } catch (e) { recognition = null; }
+}
+
+function showLive(pending, interim) {
+  let el = $("transcript").querySelector(".live");
+  if (!el) {
+    el = document.createElement("div");
+    el.className = "live interim";
+    $("transcript").appendChild(el);
+  }
+  el.textContent = "Cidadão: " + collapseRepeats((pending + " " + interim).replace(/\s+/g, " ").trim());
+  $("transcript").scrollTop = $("transcript").scrollHeight;
+}
+
+function _normWord(s) {
+  return s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[.,;:!?()]/g, "");
+}
+
+const _NUM_WORDS = new Set(["zero", "um", "dois", "tres", "quatro", "cinco", "seis",
+  "sete", "oito", "nove", "dez", "onze", "doze", "treze", "quatorze", "catorze",
+  "quinze", "dezesseis", "dezessete", "dezoito", "dezenove", "vinte", "trinta",
+  "quarenta", "cinquenta", "sessenta", "setenta", "oitenta", "noventa", "cem",
+  "cento", "duzentos", "trezentos", "quatrocentos", "quinhentos", "seiscentos",
+  "setecentos", "oitocentos", "novecentos"]);
+function _isNum(w) { const n = _normWord(w); return /^\d+$/.test(n) || _NUM_WORDS.has(n); }
+
+function collapseRepeats(text) {
+  let w = (text || "").split(/\s+/).filter(Boolean);
+  let out = [];
+  for (const x of w) {
+    if (out.length && _normWord(x) === _normWord(out[out.length - 1]) && !_isNum(x)) continue;
+    out.push(x);
+  }
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (let size = Math.min(10, Math.floor(out.length / 2)); size >= 1; size--) {
+      let i = 0;
+      while (i + 2 * size <= out.length) {
+        const a = out.slice(i, i + size).map(_normWord).join(" ");
+        const b = out.slice(i + size, i + 2 * size).map(_normWord).join(" ");
+        if (a === b && !out.slice(i, i + size).every(_isNum)) {
+          out.splice(i + size, size); changed = true;
+        } else i++;
+      }
+    }
+  }
+  return out.join(" ");
+}
+
+// O reconhecedor às vezes emite finais CUMULATIVOS ("meu", "meu nome", "meu nome é").
+// Mescla evitando duplicar o trecho já acumulado.
+function appendFinal(chunk) {
+  chunk = (chunk || "").trim();
+  if (!chunk) return;
+  const cur = pendingFinal.split(/\s+/).filter(Boolean);
+  const words = chunk.split(/\s+/).filter(Boolean);
+  let ov = 0;
+  for (let k = Math.min(cur.length, words.length); k > 0; k--) {
+    if (cur.slice(cur.length - k).map(_normWord).join(" ") ===
+        words.slice(0, k).map(_normWord).join(" ")) { ov = k; break; }
+  }
+  pendingFinal = cur.concat(words.slice(ov)).join(" ");
+}
+
+function clearLive() {
+  const el = $("transcript").querySelector(".live");
+  if (el) el.remove();
+}
+
+function resetSilence() {
+  clearTimeout(silenceTimer);
+  silenceTimer = setTimeout(finalizeSpeech, SILENCE_MS);
+}
+
+function finalizeSpeech() {
+  clearTimeout(silenceTimer);
+  const text = collapseRepeats(pendingFinal).trim();
+  if (!text) return;
+  pendingFinal = "";
+  if (recognition) { try { recognition.abort(); } catch (e) {} }
+  processing = true;
+  sendTurn(text);
+}
+
+async function sendTurn(text) {
+  processing = true;
+  clearLive();
+  appendLine("cid", "Cidadão: " + text);
+  const r = await fetch("/api/call/turn", {
+    method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({call_id: callId, text})
+  }).then(x => x.json());
+  appendLine("bot", "Bot: " + r.reply);
+  updateOcc(r.occurrence);
+  if (r.finished) { active = false; processing = false; endCallLocal(); tts(r.reply); return; }
+  tts(r.reply, () => { processing = false; pendingFinal = ""; listen(); });
+}
+
+function endCallLocal() {
+  $("callState").textContent = "Ligação encerrada";
+  $("startBtn").style.display = "block"; $("hangBtnWrap").style.display = "none";
+  $("startBtn").textContent = "Nova ligação";
+}
+
+function hangUp() {
+  active = false;
+  if (recognition) try { recognition.abort(); } catch (e) {}
+  if ("speechSynthesis" in window) speechSynthesis.cancel();
+  endCallLocal();
+}
+
+function sendTyped() {
+  const el = $("typedText");
+  const v = collapseRepeats(el.value).trim();
+  if (!v) return;
+  el.value = "";
+  if (!callId) { alert("Clique em 'Atender ligação' primeiro."); return; }
+  active = false;                       // pausa o microfone no modo digitação
+  if (recognition) { try { recognition.abort(); } catch (e) {} }
+  sendTurn(v);
+}
+
+$("startBtn").onclick = startCall;
+$("hangBtn").onclick = hangUp;
+$("doneBtn").onclick = finalizeSpeech;
+$("sendTyped").onclick = sendTyped;
+$("typedText").addEventListener("keydown", (e) => { if (e.key === "Enter") sendTyped(); });
+</script>
+</body>
+</html>

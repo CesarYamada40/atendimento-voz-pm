@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Painel de Ocorrências — PM</title>
+<link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+<header>
+  <h1>Painel de Ocorrências · Polícia Militar</h1>
+  <nav class="nav">
+    <a href="/">Atendimento</a>
+    <a href="/dashboard" class="active">Painel de Ocorrências</a>
+  </nav>
+</header>
+
+<div style="padding:22px">
+  <div class="panel">
+    <h2>Ocorrências (<span id="count">0</span>) — atualização ao vivo</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Gravidade</th><th>Hora</th><th>Natureza</th><th>Local</th>
+          <th>CEP</th><th>Cidade/UF</th><th>Órgão responsável</th><th>Status</th>
+        </tr>
+      </thead>
+      <tbody id="rows">
+        <tr><td colspan="8" class="muted">Sem ocorrências ainda.</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="panel" id="detail" style="display:none">
+    <h2>Detalhe</h2>
+    <div id="detailBody"></div>
+  </div>
+</div>
+
+<script>
+const rows = document.getElementById("rows");
+const occs = new Map();
+
+function badge(o) {
+  if (!o.severity) return '<span class="muted">—</span>';
+  return `<span class="badge ${o.severity}">${o.severity}</span>`;
+}
+function fmtTime(iso) { try { return new Date(iso).toLocaleTimeString("pt-BR"); } catch (e) { return "—"; } }
+
+function render() {
+  const list = [...occs.values()].sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""));
+  document.getElementById("count").textContent = list.length;
+  if (!list.length) { rows.innerHTML = '<tr><td colspan="8" class="muted">Sem ocorrências ainda.</td></tr>'; return; }
+  rows.innerHTML = list.map(o => `
+    <tr data-id="${o.call_id}" style="cursor:pointer">
+      <td>${badge(o)}</td>
+      <td>${fmtTime(o.created_at)}</td>
+      <td>${o.nature || "—"}</td>
+      <td>${o.location_address || o.location_reference || "—"}</td>
+      <td>${o.cep || "—"}</td>
+      <td>${(o.city || "") + (o.location_state ? "/" + o.location_state : "") || "—"}</td>
+      <td>${o.responsible_agency || o.recommended_dispatch || "—"}</td>
+      <td>${o.status || "—"}</td>
+    </tr>`).join("");
+  rows.querySelectorAll("tr").forEach(tr => tr.onclick = () => showDetail(tr.dataset.id));
+}
+
+function showDetail(callId) {
+  const o = occs.get(callId); if (!o) return;
+  document.getElementById("detail").style.display = "block";
+  document.getElementById("detailBody").innerHTML =
+    `<p><b>${o.nature || "Ocorrência"}</b> — ${badge(o)} ${o.severity_label || ""}</p>
+     <p class="muted">${o.severity_reason || ""}</p>
+     <p><b>Local:</b> ${o.location_address || "—"} ${o.cep ? "(CEP " + o.cep + ")" : ""}</p>
+     <p><b>Coordenadas:</b> ${(o.location_lat && o.location_lng) ? o.location_lat + ", " + o.location_lng : "—"}</p>
+     <p><b>Órgão responsável:</b> ${o.responsible_agency || "—"}</p>
+     <p><b>Transcrição:</b><br>${(o.transcript || "—")}</p>`;
+}
+
+function upsert(o) { occs.set(o.call_id, o); render(); }
+
+const ws = new WebSocket(`ws://${location.host}/ws`);
+ws.onmessage = (ev) => {
+  const msg = JSON.parse(ev.data);
+  if (msg.type === "occurrences" && Array.isArray(msg.data)) msg.data.forEach(upsert);
+  else if (msg.type === "occurrence_new" || msg.type === "occurrence_update") upsert(msg.occurrence);
+};
+
+fetch("/api/occurrences").then(r => r.json()).then(list => list.forEach(upsert));
+</script>
+</body>
+</html>
