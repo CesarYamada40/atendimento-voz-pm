@@ -45,7 +45,7 @@ QUESTIONS: List[Question] = [
     Question("tipo", "caller_type",
              "A ocorrência é para pessoa física ou empresa?", "Pessoa física ou empresa"),
     Question("estado", "location_state",
-             "Qual o estado, a UF?", "Estado"),
+             "Qual o estado?", "Estado"),
     Question("cidade", "city",
              "Qual a cidade?", "Cidade"),
     Question("bairro", "location_neighborhood",
@@ -360,8 +360,8 @@ def _confirm_phrase(occ: Occurrence) -> str:
         parts.append(f"número {occ.location_number}")
     if occ.location_neighborhood:
         parts.append(f"bairro {occ.location_neighborhood}")
-    if occ.city or occ.location_state:
-        parts.append(f"{occ.city or ''}/{occ.location_state or ''}".strip("/"))
+    if occ.city:
+        parts.append(occ.city)          # fala só a cidade (sem a sigla UF)
     parts.append(f"CEP {occ.cep}" if occ.cep else "CEP não identificado")
     return ", ".join(parts) if parts else "endereço ainda não identificado"
 
