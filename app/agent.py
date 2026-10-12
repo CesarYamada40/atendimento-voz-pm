@@ -44,17 +44,19 @@ QUESTIONS: List[Question] = [
              "Qual é a ocorrência? O que está acontecendo?", "Ocorrência"),
     Question("tipo", "caller_type",
              "A ocorrência é para pessoa física ou empresa?", "Pessoa física ou empresa"),
-    Question("endereco", "location_address",
-             "Qual o endereço da ocorrência? Rua, número e bairro, ou o CEP.", "Endereço"),
-    Question("numero", "location_number",
-             "Qual o número do endereço? Se não souber, diga um número aproximado.",
-             "Número", required=False),
     Question("estado", "location_state",
              "Qual o estado, a UF?", "Estado"),
     Question("cidade", "city",
              "Qual a cidade?", "Cidade"),
     Question("bairro", "location_neighborhood",
              "Qual o bairro? Se não souber, diga 'não sei'.", "Bairro", required=False),
+    Question("endereco", "location_address",
+             "Qual a rua (logradouro)?", "Rua"),
+    Question("numero", "location_number",
+             "Qual o número do endereço? Se não souber, diga um número aproximado.",
+             "Número", required=False),
+    Question("cep", "cep",
+             "Sabe o CEP? Se não souber, diga 'não sei'.", "CEP", required=False),
     Question("telefone", "caller_phone",
              "Qual é um telefone para contato?", "Telefone"),
     Question("referencia", "location_reference",
@@ -203,7 +205,8 @@ def _parse_org(text: str) -> Optional[str]:
 
 
 # --- Preenchimento -------------------------------------------------------------
-async def _fill_field(occ: Occurrence, q: Question, text: str) -> None:
+async def _fill_field(occ: Occurrence, q: Question, text: str,
+                      session: "CallSession") -> None:
     label = q.label
     llm_val = await llm.extract_answer(label, text)
 
@@ -248,6 +251,12 @@ async def _fill_field(occ: Occurrence, q: Question, text: str) -> None:
     elif q.id == "bairro":
         occ.location_neighborhood = nlu.collapse_repeats(llm_val or text.strip())
 
+    elif q.id == "cep":
+        # o CEP é resolvido (autoritativo) em _maybe_resolve a partir do texto;
+        # aqui só sinalizamos quando não há CEP válido na fala.
+        if not location.find_cep(nlu.spoken_to_digits(text)):
+            session.skipped.add("cep")
+
     elif q.id == "telefone":
         occ.caller_phone = _parse_phone(text, asked=True) or llm_val or text.strip()
 
@@ -259,11 +268,14 @@ async def _fill_field(occ: Occurrence, q: Question, text: str) -> None:
 
     # Garantia de progresso: se nada foi extraído, usa a fala crua (sem repetições).
     if not _is_filled(occ, q):
-        fallback = nlu.collapse_repeats(text.strip())
-        if q.id == "tipo":
-            occ.caller_type = _parse_pf_pj(fallback) or fallback
-        elif fallback:
-            setattr(occ, q.field, fallback)
+        if q.id == "cep":
+            session.skipped.add(q.id)          # não inventa CEP
+        else:
+            fallback = nlu.collapse_repeats(text.strip())
+            if q.id == "tipo":
+                occ.caller_type = _parse_pf_pj(fallback) or fallback
+            elif fallback:
+                setattr(occ, q.field, fallback)
 
 
 def _autofill(occ: Occurrence, text: str) -> None:
@@ -284,31 +296,31 @@ def _autofill(occ: Occurrence, text: str) -> None:
 
 
 async def _maybe_resolve(occ: Occurrence, session: "CallSession") -> None:
+    """Resolve o local. CEP é autoritativo (sobrescreve); sem CEP, geocodifica o
+    endereço estruturado (rua/bairro/cidade/UF) apenas preenchendo o que falta."""
     last = session.transcript[-1] if session.transcript else ""
     full = " ".join(session.transcript)
     cep = location.find_cep(nlu.spoken_to_digits(last)) or \
         location.find_cep(nlu.spoken_to_digits(full))
-    if occ.location_source and (not cep or cep == occ.cep):
+
+    # 1) CEP informado: resolve e sobrescreve (fonte confiável)
+    if cep and cep != occ.cep:
+        geo = await location.resolve(cep, cep_hint=cep)
+        if geo.resolved:
+            _apply_geo(occ, geo, override=True)
         return
-    raw = occ.location_address or occ.location_reference or ""
-    if not cep and not raw:
+
+    # 2) Sem CEP: geocodifica o endereço já estruturado, sem sobrescrever o cidadão
+    if occ.location_lat is not None:
         return
-    geo = await location.resolve(raw or cep, cep_hint=cep)
-    if not geo.resolved:
+    query = ", ".join(x for x in [occ.location_address, occ.location_number,
+                                  occ.location_neighborhood, occ.city,
+                                  occ.location_state] if x)
+    if not query:
         return
-    occ.cep = geo.cep or occ.cep
-    occ.location_number = geo.number or occ.location_number
-    occ.location_neighborhood = geo.neighborhood or occ.location_neighborhood
-    occ.city = geo.city or occ.city
-    occ.location_state = location.parse_uf(geo.state) or geo.state or occ.location_state
-    occ.location_lat = geo.lat if geo.lat is not None else occ.location_lat
-    occ.location_lng = geo.lng if geo.lng is not None else occ.location_lng
-    occ.location_source = geo.source
-    occ.location_confidence = geo.confidence
-    if geo.street:
-        occ.location_address = geo.street          # guarda o nome da rua
-    elif cep or not occ.location_address:
-        occ.location_address = geo.display or occ.location_address
+    geo = await location.resolve(query)
+    if geo.resolved:
+        _apply_geo(occ, geo, override=False)
 
 
 # --- Leitura dos dados ---------------------------------------------------------
@@ -354,17 +366,22 @@ def _confirm_phrase(occ: Occurrence) -> str:
     return ", ".join(parts) if parts else "endereço ainda não identificado"
 
 
-def _apply_geo(occ: Occurrence, geo: "location.GeoResult") -> None:
-    if geo.cep:
-        occ.cep = geo.cep
-    if geo.street:
-        occ.location_address = geo.street
-    if geo.neighborhood:
-        occ.location_neighborhood = geo.neighborhood
-    if geo.city:
-        occ.city = geo.city
-    if geo.state:
-        occ.location_state = location.parse_uf(geo.state) or geo.state
+def _apply_geo(occ: Occurrence, geo: "location.GeoResult", override: bool = False) -> None:
+    """Aplica dados de geocodificação. override=True sobrescreve (CEP autoritativo);
+    override=False só preenche o que ainda está vazio (não sobrescreve o cidadão)."""
+    def setf(field: str, val) -> None:
+        if val and (override or not getattr(occ, field)):
+            setattr(occ, field, val)
+
+    setf("cep", geo.cep)
+    setf("location_address", geo.street)
+    setf("location_neighborhood", geo.neighborhood)
+    setf("city", geo.city)
+    setf("location_state", location.parse_uf(geo.state) or geo.state)
+    if geo.lat is not None and (override or occ.location_lat is None):
+        occ.location_lat = geo.lat
+    if geo.lng is not None and (override or occ.location_lng is None):
+        occ.location_lng = geo.lng
     occ.location_source = geo.source
     occ.location_confidence = geo.confidence
 
@@ -606,7 +623,7 @@ async def _process(session: CallSession, text: str, nt: str) -> TurnResponse:
     q = session.current_question() or _next_question(occ, session)
     if q:
         session.current_qid = q.id
-        await _fill_field(occ, q, text)
+        await _fill_field(occ, q, text, session)
     _autofill(occ, text)
     await _maybe_resolve(occ, session)
 
@@ -622,6 +639,7 @@ def _match_question(nt: str) -> Optional[Question]:
         "tipo": "tipo", "empresa": "tipo", "pessoa": "tipo", "fisica": "tipo",
         "endereco": "endereco", "rua": "endereco", "local": "endereco",
         "numero": "numero", "número": "numero",
+        "cep": "cep",
         "estado": "estado", "uf": "estado",
         "cidade": "cidade", "municipio": "cidade",
         "bairro": "bairro",

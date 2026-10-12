@@ -19,6 +19,8 @@ coordenadas) e define a **gravidade** e o **órgão/viatura responsável** a des
 - Perguntas de **estado (UF), cidade e bairro** e do **número do local (ou aproximado)**
   (estado/cidade/bairro pulados quando o CEP já resolve) — garante que a **viatura/
   equipe tática certa** vá ao local.
+- Perguntas de local na ordem **estado → cidade → bairro → rua → número → CEP**
+  (do geral ao específico) — garante que a **viatura/equipe tática certa** vá ao local.
 - A IA **confirma o local identificado** antes de prosseguir ("Localizei o endereço:
   … Está correto?") e, se o cidadão **não tiver o CEP**, **descobre o CEP** pela
   rua/bairro/cidade/UF (ViaCEP por logradouro — SP e todo o Brasil). Se não estiver

@@ -11,18 +11,25 @@ respondidas são **puladas**; várias informações numa só fala também são c
 | 1 | Qual é o seu nome? | `caller_name` | sim |
 | 2 | Qual é a ocorrência? O que está acontecendo? | `nature` | sim |
 | 3 | A ocorrência é para pessoa física ou empresa? | `caller_type` (+ `org_name`) | sim |
-| 4 | Qual o endereço da ocorrência? (rua/nº/bairro ou CEP) | `location_address` (+ CEP/geo) | sim |
-| 5 | Qual o número do endereço? (ou aproximado) | `location_number` | não |
-| 6 | Qual o estado, a UF? | `location_state` | sim |
-| 7 | Qual a cidade? | `city` | sim |
-| 8 | Qual o bairro? | `location_neighborhood` | sim |
-| 9 | Qual é um telefone para contato? | `caller_phone` | sim |
-| 10 | Tem algum ponto de referência? | `location_reference` | não |
-| 11 | Agora descreva os fatos. | `description` | sim |
+| 4 | Qual o estado, a UF? | `location_state` | sim |
+| 5 | Qual a cidade? | `city` | sim |
+| 6 | Qual o bairro? (ou "não sei") | `location_neighborhood` | não |
+| 7 | Qual a rua (logradouro)? | `location_address` | sim |
+| 8 | Qual o número do endereço? (ou aproximado) | `location_number` | não |
+| 9 | Sabe o CEP? (ou "não sei") | `cep` | não |
+| 10 | Qual é um telefone para contato? | `caller_phone` | sim |
+| 11 | Tem algum ponto de referência? | `location_reference` | não |
+| 12 | Agora descreva os fatos. | `description` | sim |
 
-> **Localização:** quando o CEP é informado, ele resolve endereço + bairro + cidade + UF
-> (BrasilAPI/ViaCEP) e as perguntas 6–8 são **puladas automaticamente**; o **número**
-> (pergunta 5) continua sendo pedido.
+> **Por que esta ordem:** o endereço é montado **do geral para o específico**
+> (UF → cidade → bairro → rua → nº → CEP). Assim a busca do CEP por logradouro
+> (ViaCEP) já tem cidade/UF e acerta — antes, pedir a rua primeiro gerava
+> **CEPs e endereços errados**.
+
+> **Localização:** quando o CEP é informado, ele é **autoritativo** (resolve e
+> sobrescreve endereço/bairro/cidade/UF). Sem CEP, a IA **descobre o CEP** pela
+> rua+bairro+cidade+UF (ViaCEP por logradouro). O geocode **nunca sobrescreve** o
+> que o cidadão informou — só preenche o que falta.
 
 ### Confirmação do local (obrigatória)
 Antes de pedir o telefone, a IA **confirma o local identificado**:

@@ -5,12 +5,16 @@ FLUXO_OK = [
     "Bom dia, meu nome é João da Silva",
     "Estou sendo assaltado agora, tem um homem armado",
     "É pessoa física",
-    "Avenida Paulista, CEP 01310-100, São Paulo",
+    "São Paulo",
+    "São Paulo",
+    "Bela Vista",
+    "Avenida Paulista",
     "número 1578",
+    "01310-100",
     "sim",
     "Pode anotar 11 91234-5678",
     "não sei",
-    "O homem está de camiseta preta, de moto, apontando a arma agora",
+    "O homem está de camiseta preta, apontando a arma agora",
 ]
 
 

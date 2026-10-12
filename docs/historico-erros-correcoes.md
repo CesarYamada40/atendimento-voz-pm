@@ -36,8 +36,11 @@ Cada item lista: **sintoma → causa → correção → teste**.
 | 27 | Ao pular uma pergunta, a **confirmação de local era contornada** | ramo de "não sei" retornava direto | Avanço centralizado (`_ask_next`) garante a confirmação antes do telefone |
 | 28 | Não informava o CEP quando não encontrava | frase omitia o CEP | Confirmação **sempre** informa "CEP …" ou "CEP não identificado" |
 | 29 | Não localizava por **ponto de referência** | busca só por rua/bairro/cidade | Fallback **Nominatim** por endereço/referência quando a busca por logradouro falha |
+| 30 | **CEPs e endereços errados** / travava no endereço | pedia a **rua antes** de estado/cidade/bairro → geocode sem contexto | Reordenar: **estado → cidade → bairro → rua → nº → CEP** (do geral ao específico) |
+| 31 | Geocode **sobrescrevia** o que o cidadão informou | `_apply_geo` sempre sobrescrevia | **CEP é autoritativo** (sobrescreve); sem CEP, geocode **só preenche vazios** |
+| 32 | CEP não era uma pergunta | faltava coletar o CEP | CEP virou **pergunta opcional** e é sempre informado na confirmação |
 
 ## Estado atual
-- 56 testes automatizados (`pytest`), offline e determinísticos.
+- 53 testes automatizados (`pytest`), offline e determinísticos.
 - Relatório de log por ocorrência com checklist e passo a passo.
 - Erros conhecidos/pendências: telefonia real (SIP/190) e integração CAD ainda não existem (fases 2–3).
