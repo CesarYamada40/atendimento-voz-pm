@@ -48,6 +48,12 @@ def test_furto_eh_g3():
     assert r.severity == Severity.G3
 
 
+def test_esfaqueamento_eh_alta():
+    r = classify(_occ(injuries="esfaqueado"), "o cara esfaqueou o outro e saiu correndo")
+    assert r.severity in (Severity.G1, Severity.G2)
+    assert r.recommend_human is True
+
+
 def test_limites_de_score():
     assert _score_to_severity(80) == Severity.G1
     assert _score_to_severity(79) == Severity.G2

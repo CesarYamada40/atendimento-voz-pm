@@ -197,3 +197,16 @@ def test_final_curto_com_rua_e_numero(run):
     assert o.occurrence_number in last.reply
     assert o.location_address in last.reply
     assert "Aguarde" in last.reply
+
+
+def test_tipo_fisica_nao_vira_empresa(run):
+    _start, last = run(["João", "assalto", "física"])
+    assert last.occurrence.caller_type == "PF"
+    assert last.occurrence.org_name is None
+
+
+def test_apos_gerar_nao_polui_os_fatos(run, turn):
+    start, last = run(FLUXO_OK)
+    desc = last.occurrence.description
+    r = turn(start.call_id, "show de bola maluca")
+    assert r.occurrence.description == desc

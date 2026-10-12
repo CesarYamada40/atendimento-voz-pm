@@ -29,8 +29,11 @@ Cada item lista: **sintoma → causa → correção → teste**.
 | 20 | Anotava o endereço mas **não confirmava** se o CEP/local foi encontrado — risco de viatura no local errado | sem etapa de confirmação | **Confirmação obrigatória do local** ("Localizei o endereço: … Está correto?") antes de seguir; "não" limpa o endereço e refaz |
 | 21 | Sem CEP, não descobria o CEP pelo endereço | faltava busca reversa | **ViaCEP por logradouro** (`/ws/{UF}/{cidade}/{rua}`) → rua canônica + CEP (SP e todo o Brasil) |
 | 22 | Estado vinha como nome ("São Paulo") do Nominatim | sem normalização | Normalizar para **UF** (`parse_uf` → "SP") |
+| 23 | `org_name` gravado como **"física"** (não é empresa) | nome de empresa era extraído mesmo em PF | Só extrair `org_name` quando o tipo for **PJ** |
+| 24 | **Esfaqueamento** classificado como G3 | "esfaqueou" não estava nos gatilhos | Gatilhos de esfaqueamento/arma branca → **G1/G2** |
+| 25 | Fala solta pós-registro ("show de bola maluca") **anexada aos fatos** | appends cegos após gerar | Após gerar, apenas reconhece; **não polui** o registro |
 
 ## Estado atual
-- 51 testes automatizados (`pytest`), offline e determinísticos.
+- 54 testes automatizados (`pytest`), offline e determinísticos.
 - Relatório de log por ocorrência com checklist e passo a passo.
 - Erros conhecidos/pendências: telefonia real (SIP/190) e integração CAD ainda não existem (fases 2–3).

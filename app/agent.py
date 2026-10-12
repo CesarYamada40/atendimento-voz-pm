@@ -94,7 +94,8 @@ _LIFE = ["morrendo", "morte", "morrer", "socorro", "sangue", "sangrando", "ferid
          "baleado", "atirou", "atirando", "vai matar", "risco"]
 _ONGOING = ["agora", "nesse momento", "neste momento", "acontecendo", "ainda",
             "continua", "nesse instante"]
-_INJURY = ["ferido", "ferida", "machucado", "machucada", "sangrando", "baleado"]
+_INJURY = ["ferido", "ferida", "machucado", "machucada", "sangrando", "baleado",
+           "esfaqueado", "esfaqueada", "esfaqueou", "facada"]
 _NAME_STOP = {"meu", "nome", "e", "sou", "o", "a", "aqui", "me", "chamo", "pode",
               "chamar", "de", "esta", "está", "falando", "quem", "ao", "telefone",
               "bom", "boa", "dia", "tarde", "noite", "ola", "olá", "alô", "alo"}
@@ -222,10 +223,12 @@ async def _fill_field(occ: Occurrence, q: Question, text: str) -> None:
             occ.caller_type = tipo
         elif llm_val:
             occ.caller_type = llm_val
-        org = _parse_org(text) or (llm_val if llm_val and _norm(llm_val) not in
-                                   {"empresa", "pessoa juridica", "pj", "pessoa fisica", "pf"} else None)
-        if org:
-            occ.org_name = org
+        # nome da empresa só faz sentido quando é pessoa jurídica
+        if occ.caller_type == "PJ":
+            org = _parse_org(text) or llm_val
+            if org and _norm(org) not in {"empresa", "pessoa juridica", "pj",
+                                          "companhia", "firma", "estabelecimento"}:
+                occ.org_name = org
     elif q.id == "endereco":
         m = _ADDR_RE.search(text)
         addr = llm_val or (m.group(1).strip() if m else None) or text.strip()
@@ -444,10 +447,9 @@ def _after_generated(session: CallSession, text: str, nt: str) -> TurnResponse:
         occ.status = "encerrada"
         reply = f"Atendimento encerrado. Ocorrência {occ.occurrence_number} registrada. Obrigado."
         return _respond(session, reply, finished=True)
-    # nova informação após gerar: anexa aos fatos
-    occ.description = (occ.description or "") + " " + text.strip()
-    storage.save_occurrence(occ)
-    reply = "Anotei essa informação. Deseja repetir os dados ou encerrar?"
+    # informação extra após gerar: apenas reconhece, sem poluir o registro
+    reply = ("Sua ocorrência já está registrada. "
+             "Deseja repetir os dados, saber o número ou encerrar?")
     return _respond(session, reply)
 
 
