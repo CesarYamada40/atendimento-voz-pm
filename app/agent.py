@@ -54,7 +54,7 @@ QUESTIONS: List[Question] = [
     Question("cidade", "city",
              "Qual a cidade?", "Cidade"),
     Question("bairro", "location_neighborhood",
-             "Qual o bairro?", "Bairro"),
+             "Qual o bairro? Se não souber, diga 'não sei'.", "Bairro", required=False),
     Question("telefone", "caller_phone",
              "Qual é um telefone para contato?", "Telefone"),
     Question("referencia", "location_reference",
@@ -350,23 +350,44 @@ def _confirm_phrase(occ: Occurrence) -> str:
         parts.append(f"bairro {occ.location_neighborhood}")
     if occ.city or occ.location_state:
         parts.append(f"{occ.city or ''}/{occ.location_state or ''}".strip("/"))
-    if occ.cep:
-        parts.append(f"CEP {occ.cep}")
+    parts.append(f"CEP {occ.cep}" if occ.cep else "CEP não identificado")
     return ", ".join(parts) if parts else "endereço ainda não identificado"
 
 
+def _apply_geo(occ: Occurrence, geo: "location.GeoResult") -> None:
+    if geo.cep:
+        occ.cep = geo.cep
+    if geo.street:
+        occ.location_address = geo.street
+    if geo.neighborhood:
+        occ.location_neighborhood = geo.neighborhood
+    if geo.city:
+        occ.city = geo.city
+    if geo.state:
+        occ.location_state = location.parse_uf(geo.state) or geo.state
+    occ.location_source = geo.source
+    occ.location_confidence = geo.confidence
+
+
 async def _resolve_address_to_cep(occ: Occurrence) -> None:
-    """Sem CEP: descobre a rua canônica e o CEP a partir de rua/bairro/cidade/UF."""
-    if occ.cep or not (occ.location_address and occ.city and occ.location_state):
+    """Descobre o CEP por: rua/bairro/cidade/UF (ViaCEP) ou referência (Nominatim)."""
+    if occ.cep:
         return
-    geo = await location.resolve_address(
-        occ.location_state, occ.city, occ.location_address, occ.location_neighborhood)
-    if geo.resolved:
-        occ.cep = geo.cep or occ.cep
-        occ.location_address = geo.street or occ.location_address
-        occ.location_neighborhood = geo.neighborhood or occ.location_neighborhood
-        occ.location_source = geo.source
-        occ.location_confidence = geo.confidence
+    # 1) ViaCEP por logradouro (funciona sem o bairro)
+    if occ.location_address and occ.city and occ.location_state:
+        geo = await location.resolve_address(
+            occ.location_state, occ.city, occ.location_address, occ.location_neighborhood)
+        if geo.resolved:
+            _apply_geo(occ, geo)
+            return
+    # 2) Nominatim pelo endereço/referência + cidade/UF
+    query = ", ".join(x for x in [occ.location_address or occ.location_reference,
+                                  occ.location_neighborhood, occ.city,
+                                  occ.location_state] if x)
+    if query:
+        geo = await location.resolve(query)
+        if geo.resolved:
+            _apply_geo(occ, geo)
 
 
 def _final_summary(occ: Occurrence) -> str:
@@ -500,6 +521,21 @@ def _log_event(session: CallSession, text: str, answered_qid: Optional[str],
     storage.add_event(session.call_id, resp.state.value, resp.question_id, text, snapshot)
 
 
+async def _ask_next(session: CallSession, nxt: Question, prefix: str = "") -> TurnResponse:
+    """Pergunta a próxima questão — inserindo a confirmação do local antes do telefone."""
+    occ = session.occurrence
+    if nxt.id == "telefone" and not session.loc_confirmed:
+        if not occ.cep:
+            await _resolve_address_to_cep(occ)
+        session.awaiting_location_confirm = True
+        session.current_qid = "confirmar_local"
+        reply = (f"{prefix}Localizei o endereço: {_confirm_phrase(occ)}. "
+                 "Está correto? Diga sim para confirmar ou não para corrigir.")
+        return _respond(session, reply)
+    session.current_qid = nxt.id
+    return _respond(session, prefix + nxt.prompt)
+
+
 async def process_turn(req: TurnRequest) -> TurnResponse:
     session = _get_or_create(req.call_id)
     occ = session.occurrence
@@ -529,8 +565,7 @@ async def _process(session: CallSession, text: str, nt: str) -> TurnResponse:
             nxt = _next_question(occ, session)
             if nxt is None:
                 return await _generate(session)
-            session.current_qid = nxt.id
-            return _respond(session, "Local confirmado. " + nxt.prompt)
+            return await _ask_next(session, nxt, "Local confirmado. ")
         # não confirmou: limpa o local e volta a perguntar o endereço
         for f in ("location_address", "cep", "location_number",
                   "location_neighborhood", "location_source", "location_confidence"):
@@ -547,14 +582,15 @@ async def _process(session: CallSession, text: str, nt: str) -> TurnResponse:
         return _respond(session, q.prompt if q else "Pode repetir, por favor?")
     if _has(nt, _DONT_KNOW):
         q = session.current_question()
-        if q and not q.required:
-            session.skipped.add(q.id)
-            nxt = _next_question(occ, session)
-            if nxt is None:
-                return await _generate(session)
-            session.current_qid = nxt.id
-            return _respond(session, f"Tudo bem. {nxt.prompt}")
         if q:
+            session.attempts[q.id] = session.attempts.get(q.id, 0) + 1
+            # opcional: pula na 1ª; obrigatória: insiste 1x e depois pula (nunca trava)
+            if (not q.required) or session.attempts[q.id] >= 2:
+                session.skipped.add(q.id)
+                nxt = _next_question(occ, session)
+                if nxt is None:
+                    return await _generate(session)
+                return await _ask_next(session, nxt, "Tudo bem. ")
             return _respond(session, f"Essa informação é importante. {q.prompt}")
 
     # Corrigir um campo específico
@@ -577,19 +613,7 @@ async def _process(session: CallSession, text: str, nt: str) -> TurnResponse:
     nxt = _next_question(occ, session)
     if nxt is None:
         return await _generate(session)
-
-    # Antes de seguir para o telefone, confirma o local identificado.
-    if nxt.id == "telefone" and not session.loc_confirmed:
-        if not occ.cep:
-            await _resolve_address_to_cep(occ)
-        session.awaiting_location_confirm = True
-        session.current_qid = "confirmar_local"
-        reply = (f"Localizei o endereço: {_confirm_phrase(occ)}. "
-                 "Está correto? Diga sim para confirmar ou não para corrigir.")
-        return _respond(session, reply)
-
-    session.current_qid = nxt.id
-    return _respond(session, nxt.prompt)
+    return await _ask_next(session, nxt)
 
 
 def _match_question(nt: str) -> Optional[Question]:

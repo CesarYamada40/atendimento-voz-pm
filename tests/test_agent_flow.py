@@ -185,6 +185,23 @@ def test_nao_confirma_local_volta_para_endereco(run, turn):
     assert resp.occurrence.cep is None
 
 
+def test_bairro_nao_sei_nao_trava_e_acha_cep(run):
+    _start, last = run([
+        "João", "assalto em andamento", "pessoa física",
+        "Rua das Flores número dez", "Sergipe", "Aracaju", "não sei",
+    ])
+    assert "Localizei o endereço" in last.reply      # seguiu para a confirmação
+    assert last.occurrence.cep == "49015110"          # CEP achado por rua+cidade
+
+
+def test_nao_trava_em_campo_obrigatorio(run, turn):
+    start, _ = run([])
+    r1 = turn(start.call_id, "não sei")
+    assert r1.question_id == "nome"                   # insiste 1x
+    r2 = turn(start.call_id, "não sei")
+    assert r2.question_id == "ocorrencia"             # 2ª vez: pula (não trava)
+
+
 def test_mensagem_de_despacho_a_equipe(run):
     _start, last = run(FLUXO_OK)
     assert "equipe tática" in last.reply.lower()

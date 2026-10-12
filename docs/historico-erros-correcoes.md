@@ -32,8 +32,12 @@ Cada item lista: **sintoma → causa → correção → teste**.
 | 23 | `org_name` gravado como **"física"** (não é empresa) | nome de empresa era extraído mesmo em PF | Só extrair `org_name` quando o tipo for **PJ** |
 | 24 | **Esfaqueamento** classificado como G3 | "esfaqueou" não estava nos gatilhos | Gatilhos de esfaqueamento/arma branca → **G1/G2** |
 | 25 | Fala solta pós-registro ("show de bola maluca") **anexada aos fatos** | appends cegos após gerar | Após gerar, apenas reconhece; **não polui** o registro |
+| 26 | **Travou** quando o cidadão não sabia o **bairro** | bairro era obrigatório; "não sei" repetia a pergunta para sempre | Bairro **opcional** + anti-loop: obrigatória insiste 1x e depois **pula** (nunca trava) |
+| 27 | Ao pular uma pergunta, a **confirmação de local era contornada** | ramo de "não sei" retornava direto | Avanço centralizado (`_ask_next`) garante a confirmação antes do telefone |
+| 28 | Não informava o CEP quando não encontrava | frase omitia o CEP | Confirmação **sempre** informa "CEP …" ou "CEP não identificado" |
+| 29 | Não localizava por **ponto de referência** | busca só por rua/bairro/cidade | Fallback **Nominatim** por endereço/referência quando a busca por logradouro falha |
 
 ## Estado atual
-- 54 testes automatizados (`pytest`), offline e determinísticos.
+- 56 testes automatizados (`pytest`), offline e determinísticos.
 - Relatório de log por ocorrência com checklist e passo a passo.
 - Erros conhecidos/pendências: telefonia real (SIP/190) e integração CAD ainda não existem (fases 2–3).
